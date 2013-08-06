@@ -39,8 +39,6 @@ import org.kiji.express.modeling.config.KVStore
 import org.kiji.express.modeling.impl.AvroKVRecordKeyValueStore
 import org.kiji.express.modeling.impl.AvroRecordKeyValueStore
 import org.kiji.express.modeling.impl.KijiTableKeyValueStore
-import org.kiji.express.util.ExpressGenericRow
-import org.kiji.express.util.ExpressGenericTable
 import org.kiji.express.util.Tuples
 import org.kiji.mapreduce.KijiContext
 import org.kiji.mapreduce.kvstore.{ KeyValueStore => JKeyValueStore }
@@ -104,15 +102,6 @@ final class ExtractScoreProducer
     }
   }
 
-  /** Used to decode rows from Kiji with a generic API. This variable must be initialized. */
-  private[this] var _genericTable: Option[ExpressGenericTable] = None
-  private[this] def genericTable: ExpressGenericTable = {
-    _genericTable.getOrElse {
-      throw new IllegalStateException(
-          "Generic Avro decoding facilities have not been initialized yet.")
-    }
-  }
-
   /**
    * Sets the Configuration for this KijiProducer to use. This function is guaranteed to be called
    * immediately after instantiation.
@@ -164,10 +153,6 @@ final class ExtractScoreProducer
         .asScala
         .map { column => column.getColumnName() }
         .toSeq
-    if (_genericTable.isDefined) {
-      genericTable.close()
-    }
-    _genericTable = Some(new ExpressGenericTable(uri, conf, columns))
 
     // Finish setting the conf object.
     super.setConf(conf)
@@ -277,9 +262,6 @@ final class ExtractScoreProducer
       }
     }
 
-    // Wrap KijiRowData in ExpressGenericRow to permit decoding of cells into generic Avro records.
-    val row: ExpressGenericRow = genericTable.getRow(input)
-
     // Prepare input to the extract phase.
     val slices: Seq[KijiSlice[Any]] = extractInputFields
         .map { field =>
@@ -287,9 +269,9 @@ final class ExtractScoreProducer
 
           // Build a slice from each column within the row.
           if (columnName.isFullyQualified) {
-            KijiSlice[Any](row.iterator(columnName.getFamily(), columnName.getQualifier()))
+            KijiSlice[Any](input, columnName.getFamily(), columnName.getQualifier())
           } else {
-            KijiSlice[Any](row.iterator(columnName.getFamily()))
+            KijiSlice[Any](input, columnName.getFamily())
           }
         }
 
@@ -308,12 +290,6 @@ final class ExtractScoreProducer
 
     // Write the score out using the provided context.
     context.put(scoreValue)
-  }
-
-  override def cleanup(context: KijiContext) {
-    if (_genericTable.isDefined) {
-      genericTable.close()
-    }
   }
 }
 
